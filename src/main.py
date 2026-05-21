@@ -44,6 +44,14 @@ class SessionResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class SourceResponse(BaseModel):
+    source: str
+    excerpt: str
+
+class ChatResponse(BaseModel):
+    response: str
+    sources: List[SourceResponse]
+
 # --- Endpoints ---
 
 @app.get("/")
@@ -64,13 +72,12 @@ def list_sessions(db: Session = Depends(get_db)):
     """Lista todas as sessões existentes."""
     return db.query(ChatSession).order_by(ChatSession.created_at.desc()).all()
 
-@app.post("/sessions/{session_id}/messages")
+@app.post("/sessions/{session_id}/messages", response_model=ChatResponse)
 async def send_message(session_id: int, request: MessageRequest, db: Session = Depends(get_db)):
-    """Envia uma mensagem para a IA em uma sessão específica."""
+    """Envia uma mensagem para a IA em uma sessão específica (com RAG)."""
     chat_service = ChatService(db)
     try:
-        response_text = await chat_service.send_message(session_id, request.content)
-        return {"response": response_text}
+        return await chat_service.send_message(session_id, request.content)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 

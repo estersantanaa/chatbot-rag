@@ -22,12 +22,14 @@ async def test_ai_core():
         
         # 3. Primeira interação
         print("\nUsuário: Olá, meu nome é Ester.")
-        resposta1 = await chat.send_message(nova_sessao.id, "Olá, meu nome é Ester.")
+        result1 = await chat.send_message(nova_sessao.id, "Olá, meu nome é Ester.")
+        resposta1 = result1["response"]
         print(f"IA: {resposta1}")
         
         # 4. Segunda interação (Testando Memória)
         print("\nUsuário: Qual é o meu nome?")
-        resposta2 = await chat.send_message(nova_sessao.id, "Qual é o meu nome?")
+        result2 = await chat.send_message(nova_sessao.id, "Qual é o meu nome?")
+        resposta2 = result2["response"]
         print(f"IA: {resposta2}")
         
         if "Ester" in resposta2:
