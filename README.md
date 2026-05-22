@@ -1,24 +1,217 @@
-# Chatbot RAG
+# Chatbot RAG — ClownorCloud
 
-Repositório para o projeto de Chatbot com RAG (Retrieval-Augmented Generation).
+Chatbot com **RAG** (Retrieval-Augmented Generation): documentos em `data/` viram índice vetorial local; cada pergunta recupera trechos relevantes e a IA responde com base nesse contexto.
 
-## Estrutura do Projeto:
-- `src/`: Código fonte principal.
-- `data/`: Documentos para o RAG (PDFs, TXTs, etc).
-- `vector_db/`: Banco de dados vetorial local (ChromaDB).
-- `venv/`: Ambiente virtual Python.
-- `.env`: Variáveis de ambiente (use `.env.example` como base).
+## Stack
 
-## Como configurar:
-1.  **Venv**: O ambiente virtual já foi criado. Ative-o com:
-    ```powershell
-    .\venv\Scripts\activate
-    ```
-2.  **Dependências**: Instaladas via `requirements.txt`.
-3.  **Configuração**: Renomeie `.env.example` para `.env` e adicione sua `GROQ_API_KEY`.
+| Componente | Tecnologia |
+|------------|------------|
+| API | FastAPI + Uvicorn |
+| LLM | Groq (`llama-3.3-70b-versatile`) |
+| Embeddings | HuggingFace (`sentence-transformers/all-MiniLM-L6-v2`, local/CPU) |
+| Banco vetorial | **FAISS** (arquivos em `vector_db/`) |
+| Histórico de chat | SQLite (`chatbot.db`) |
 
-## Testes:
-- `test_ai_core.py`: Testes do núcleo de IA.
-- `test_db.py`: Testes de banco de dados.
-- `test_groq.py`: Testes da API Groq.
-- `test_rag_setup.py`: Validação da infraestrutura de RAG.
+## Arquitetura
+
+```mermaid
+flowchart LR
+  subgraph ingest [Ingestão manual]
+    D[data/ TXT PDF]
+    I[IngestionService]
+    V[vector_db/ FAISS]
+    D --> I --> V
+  end
+
+  subgraph runtime [Runtime API]
+    Q[Pergunta do usuário]
+    R[RetrievalService]
+    A[AIService + Groq]
+    API[FastAPI]
+    Q --> R
+    V --> R
+    R --> A --> API
+  end
+```
+
+A ingestão pode ser feita pela **API** (`POST /ingest`) ou por script após colocar arquivos em `data/`.
+
+## Estrutura do projeto
+
+```
+chatbot-rag/
+├── data/                 # Documentos fonte (.txt, .pdf)
+├── vector_db/            # Índice FAISS (gerado pela ingestão; não versionar)
+├── src/
+│   ├── main.py           # Endpoints FastAPI
+│   ├── config.py         # Settings via .env
+│   ├── database.py       # SQLite + SQLAlchemy
+│   ├── models/           # ChatSession, ChatMessage
+│   └── services/
+│       ├── ingestion.py      # Pipeline: load → chunk → embed → FAISS
+│       ├── retrieval_service.py
+│       ├── ai_service.py
+│       └── chat_service.py   # Orquestra RAG + histórico + persistência
+├── test_ingest.py        # Ingestão + busca semântica de smoke test
+├── test_rag_setup.py     # Verifica paths de config
+└── requirements.txt
+```
+
+## Pré-requisitos
+
+- Python 3.10+
+- Chave da API [Groq](https://console.groq.com/)
+
+## Configuração
+
+1. Crie e ative o ambiente virtual:
+
+   ```powershell
+   python -m venv venv
+   .\venv\Scripts\activate
+   ```
+
+2. Instale as dependências:
+
+   ```powershell
+   pip install -r requirements.txt
+   ```
+
+3. Copie o exemplo de ambiente e preencha a chave:
+
+   ```powershell
+   copy .env.example .env
+   ```
+
+   Edite `.env` e defina `GROQ_API_KEY`.
+
+## Variáveis de ambiente
+
+| Variável | Padrão | Descrição |
+|----------|--------|-----------|
+| `GROQ_API_KEY` | — | Obrigatória. Chave da API Groq |
+| `DATABASE_URL` | `sqlite:///./chatbot.db` | URL do SQLite |
+| `VECTOR_DB_PATH` | `vector_db` | Pasta do índice FAISS |
+| `DOCUMENTS_PATH` | `data` | Pasta dos documentos para ingestão |
+| `RAG_TOP_K` | `4` | Quantidade de trechos recuperados por pergunta |
+| `CHAT_HISTORY_LIMIT` | `10` | Mensagens anteriores enviadas ao LLM |
+| `DEBUG` | `True` | Flag de debug (settings) |
+
+## Ingestão (obrigatória antes do RAG)
+
+### Via API (recomendado)
+
+Com a API rodando, envie um ou mais arquivos:
+
+```powershell
+curl -X POST "http://127.0.0.1:8000/ingest" -F "files=@data/clownorcloud_info.txt"
+```
+
+Vários arquivos:
+
+```powershell
+curl -X POST "http://127.0.0.1:8000/ingest" -F "files=@documento.pdf" -F "files=@faq.txt"
+```
+
+Reindexar tudo que já está em `data/` (sem upload):
+
+```powershell
+curl -X POST "http://127.0.0.1:8000/ingest/rebuild"
+```
+
+Resposta de sucesso (`201`): `files_saved`, `chunks_created`, etc. Formatos aceitos: **`.pdf`** e **`.txt`** apenas.
+
+### Via script
+
+```powershell
+python test_ingest.py
+```
+
+Ou:
+
+```powershell
+python -m src.services.ingestion
+```
+
+Isso cria `vector_db/index.faiss` e `vector_db/index.pkl`. Sem ingestão, o chat funciona, mas **sem contexto** da base de conhecimento.
+
+## Subir a API
+
+```powershell
+uvicorn src.main:app --reload
+```
+
+Documentação interativa: http://127.0.0.1:8000/docs
+
+### Endpoints principais
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `GET` | `/` | Status da API |
+| `POST` | `/ingest` | Upload de `.pdf`/`.txt` + reindexação FAISS |
+| `POST` | `/ingest/rebuild` | Reindexa arquivos já em `data/` |
+| `POST` | `/sessions` | Nova sessão de chat |
+| `GET` | `/sessions` | Lista sessões |
+| `POST` | `/sessions/{id}/messages` | Envia mensagem (RAG + resposta + `sources`) |
+| `GET` | `/sessions/{id}/history` | Histórico da sessão |
+
+Exemplo de fluxo:
+
+```powershell
+# 1. Criar sessão
+curl -X POST http://127.0.0.1:8000/sessions
+
+# 2. Enviar mensagem (substitua {id})
+curl -X POST http://127.0.0.1:8000/sessions/1/messages -H "Content-Type: application/json" -d "{\"content\": \"Quais são os planos da ClownorCloud?\"}"
+```
+
+## Scripts de teste
+
+| Arquivo | O que valida |
+|---------|----------------|
+| `test_rag_setup.py` | Paths `data/` e `vector_db/` existem |
+| `test_ingest.py` | Pipeline completo de ingestão + buscas de exemplo |
+| `test_groq.py` | Conexão com a API Groq |
+| `test_db.py` | CRUD básico de sessão/mensagem no SQLite |
+| `test_ai_core.py` | `ChatService` ponta a ponta (memória + RAG) |
+
+```powershell
+python test_rag_setup.py
+python test_ingest.py
+python test_groq.py
+python test_db.py
+python test_ai_core.py
+```
+
+## Problemas comuns
+
+### `SSL: CERTIFICATE_VERIFY_FAILED` ao fazer `/ingest`
+
+O modelo de embeddings é baixado do Hugging Face na primeira ingestão. No Windows isso costuma falhar por certificado SSL.
+
+**Solução (recomendada):**
+
+```powershell
+pip install pip-system-certs certifi
+```
+
+Reinicie o uvicorn e tente `/ingest` de novo.
+
+**Alternativa (sem download na API):** baixe o modelo em outra máquina/rede e aponte no `.env`:
+
+```env
+EMBEDDING_MODEL_PATH=models/all-MiniLM-L6-v2
+EMBEDDING_LOCAL_ONLY=true
+```
+
+## Limitações atuais (MVP)
+
+- Reindexação **substitui** o índice inteiro (não há update incremental por arquivo).
+- Retrieval apenas por similaridade vetorial (sem rerank, híbrido ou score mínimo exposto).
+- FAISS em disco: adequado para dev/local; não é um vector DB distribuído.
+
+## Próximos passos sugeridos
+
+1. Health check do índice (`/health/rag`)  
+2. Scores de similaridade e filtro de relevância no retrieval  
+3. Remoção de documentos e update incremental do índice  

@@ -9,9 +9,9 @@ def test_ingestion_pipeline():
     
     # 1. Instancia e roda o serviço de Ingestão
     ingestion = IngestionService()
-    success = ingestion.run()
+    result = ingestion.run()
     
-    if not success:
+    if not result.get("success"):
         print("\n[ERRO] O processo de ingestão falhou. Veja os logs acima.")
         return
         

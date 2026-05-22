@@ -6,6 +6,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 
 from ..config import settings
+from .embeddings_provider import get_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +23,7 @@ class RetrievalService:
 
     def _get_embeddings(self) -> HuggingFaceEmbeddings:
         if RetrievalService._embeddings is None:
-            RetrievalService._embeddings = HuggingFaceEmbeddings(
-                model_name="sentence-transformers/all-MiniLM-L6-v2",
-                model_kwargs={"device": "cpu"},
-            )
+            RetrievalService._embeddings = get_embeddings()
         return RetrievalService._embeddings
 
     def _load_vector_db(self) -> Optional[FAISS]:
@@ -50,6 +48,11 @@ class RetrievalService:
         except Exception as e:
             logger.error("Erro ao carregar FAISS: %s", e)
             return None
+
+    @classmethod
+    def clear_cache(cls) -> None:
+        """Invalida o índice em memória após reindexação."""
+        cls._vector_db = None
 
     def retrieve(self, query: str) -> List[Dict[str, str]]:
         """Retorna trechos semânticos relacionados à pergunta."""
