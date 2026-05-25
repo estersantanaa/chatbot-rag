@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -20,6 +20,7 @@ class RetrievalService:
     def __init__(self):
         self.vector_db_path = settings.VECTOR_DB_PATH
         self.top_k = settings.RAG_TOP_K
+        self.score_threshold = settings.RAG_SCORE_THRESHOLD
 
     def _get_embeddings(self) -> HuggingFaceEmbeddings:
         if RetrievalService._embeddings is None:
@@ -54,20 +55,28 @@ class RetrievalService:
         """Invalida o índice em memória após reindexação."""
         cls._vector_db = None
 
-    def retrieve(self, query: str) -> List[Dict[str, str]]:
-        """Retorna trechos semânticos relacionados à pergunta."""
+    def retrieve(self, query: str) -> List[Dict[str, Any]]:
+        """Retorna trechos semânticos relacionados à pergunta com score FAISS."""
         db = self._load_vector_db()
         if db is None:
             return []
 
-        docs = db.similarity_search(query, k=self.top_k)
+        docs_with_scores = db.similarity_search_with_score(query, k=self.top_k)
         results = []
-        for doc in docs:
+        for doc, score in docs_with_scores:
+            score_value = float(score)
+            if (
+                self.score_threshold is not None
+                and score_value > self.score_threshold
+            ):
+                continue
+
             source = os.path.basename(doc.metadata.get("source", "desconhecido"))
             results.append(
                 {
                     "source": source,
                     "content": doc.page_content.strip(),
+                    "score": score_value,
                 }
             )
         return results

@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .ssl_setup import configure_ssl
@@ -11,6 +13,7 @@ class Settings(BaseSettings):
     VECTOR_DB_PATH: str = "vector_db"
     DOCUMENTS_PATH: str = "data"
     RAG_TOP_K: int = 4
+    RAG_SCORE_THRESHOLD: Optional[float] = None
     CHAT_HISTORY_LIMIT: int = 10
     DEBUG: bool = True
     EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"

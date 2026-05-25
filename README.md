@@ -94,6 +94,7 @@ chatbot-rag/
 | `VECTOR_DB_PATH` | `vector_db` | Pasta do índice FAISS |
 | `DOCUMENTS_PATH` | `data` | Pasta dos documentos para ingestão |
 | `RAG_TOP_K` | `4` | Quantidade de trechos recuperados por pergunta |
+| `RAG_SCORE_THRESHOLD` | — | Score máximo aceito no FAISS; menor score = trecho mais parecido |
 | `CHAT_HISTORY_LIMIT` | `10` | Mensagens anteriores enviadas ao LLM |
 | `DEBUG` | `True` | Flag de debug (settings) |
 
@@ -180,6 +181,32 @@ curl "http://127.0.0.1:8000/health/rag?check_embeddings=true"
 
 Use `check_embeddings=true` com cuidado: na primeira execução ele pode baixar/carregar o modelo do Hugging Face e demorar alguns segundos.
 
+### Scores e threshold
+
+As respostas de chat retornam `score` em cada fonte recuperada. No FAISS usado aqui, **menor score significa maior similaridade**.
+
+Exemplo:
+
+```json
+{
+  "sources": [
+    {
+      "source": "clownorcloud_info.txt",
+      "excerpt": "O plano Grande Circo...",
+      "score": 0.23
+    }
+  ]
+}
+```
+
+Para filtrar trechos fracos, defina `RAG_SCORE_THRESHOLD` no `.env`:
+
+```env
+RAG_SCORE_THRESHOLD=0.8
+```
+
+Com esse exemplo, só entram no contexto chunks com `score <= 0.8`. Comece sem threshold, observe os scores nas respostas e depois calibre um valor seguro para a sua base.
+
 ## Scripts de teste
 
 | Arquivo | O que valida |
@@ -222,11 +249,11 @@ EMBEDDING_LOCAL_ONLY=true
 ## Limitações atuais (MVP)
 
 - Reindexação **substitui** o índice inteiro (não há update incremental por arquivo).
-- Retrieval apenas por similaridade vetorial (sem rerank, híbrido ou score mínimo exposto).
+- Retrieval apenas por similaridade vetorial (sem rerank ou busca híbrida).
 - FAISS em disco: adequado para dev/local; não é um vector DB distribuído.
 
 ## Próximos passos sugeridos
 
-1. Scores de similaridade e filtro de relevância no retrieval  
-2. Remoção de documentos e update incremental do índice  
+1. Remoção de documentos e update incremental do índice  
+2. Rerank ou busca híbrida para melhorar a qualidade do retrieval  
 3. Dockerfile e configuração de deploy  

@@ -60,6 +60,7 @@ class ChatService:
                 {
                     "source": chunk["source"],
                     "excerpt": chunk["content"][:300],
+                    "score": chunk.get("score"),
                 }
                 for chunk in context_chunks
             ],

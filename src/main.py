@@ -52,6 +52,7 @@ class SessionResponse(BaseModel):
 class SourceResponse(BaseModel):
     source: str
     excerpt: str
+    score: Optional[float] = None
 
 class ChatResponse(BaseModel):
     response: str
@@ -80,6 +81,8 @@ class RagHealthResponse(BaseModel):
     vector_index_exists: bool
     vector_metadata_exists: bool
     ready_for_retrieval: bool
+    rag_top_k: int
+    rag_score_threshold: Optional[float] = None
     embedding_model: str
     embeddings_checked: bool = False
     embeddings_ok: Optional[bool] = None
@@ -145,6 +148,8 @@ def rag_health(check_embeddings: bool = False):
         vector_index_exists=vector_index_exists,
         vector_metadata_exists=vector_metadata_exists,
         ready_for_retrieval=ready_for_retrieval,
+        rag_top_k=settings.RAG_TOP_K,
+        rag_score_threshold=settings.RAG_SCORE_THRESHOLD,
         embedding_model=embedding_model,
         embeddings_checked=check_embeddings,
         embeddings_ok=embeddings_ok,
