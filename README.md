@@ -148,6 +148,7 @@ Documentação interativa: http://127.0.0.1:8000/docs
 | Método | Rota | Descrição |
 |--------|------|-----------|
 | `GET` | `/` | Status da API |
+| `GET` | `/health/rag` | Health check do índice, documentos e embeddings |
 | `POST` | `/ingest` | Upload de `.pdf`/`.txt` + reindexação FAISS |
 | `POST` | `/ingest/rebuild` | Reindexa arquivos já em `data/` |
 | `POST` | `/sessions` | Nova sessão de chat |
@@ -164,6 +165,20 @@ curl -X POST http://127.0.0.1:8000/sessions
 # 2. Enviar mensagem (substitua {id})
 curl -X POST http://127.0.0.1:8000/sessions/1/messages -H "Content-Type: application/json" -d "{\"content\": \"Quais são os planos da ClownorCloud?\"}"
 ```
+
+### Health check do RAG
+
+```powershell
+curl http://127.0.0.1:8000/health/rag
+```
+
+Esse endpoint verifica se `data/` existe, quantos `.pdf`/`.txt` estão disponíveis e se `vector_db/index.faiss` + `vector_db/index.pkl` existem. Para testar também o carregamento do modelo de embeddings:
+
+```powershell
+curl "http://127.0.0.1:8000/health/rag?check_embeddings=true"
+```
+
+Use `check_embeddings=true` com cuidado: na primeira execução ele pode baixar/carregar o modelo do Hugging Face e demorar alguns segundos.
 
 ## Scripts de teste
 
@@ -212,6 +227,6 @@ EMBEDDING_LOCAL_ONLY=true
 
 ## Próximos passos sugeridos
 
-1. Health check do índice (`/health/rag`)  
-2. Scores de similaridade e filtro de relevância no retrieval  
-3. Remoção de documentos e update incremental do índice  
+1. Scores de similaridade e filtro de relevância no retrieval  
+2. Remoção de documentos e update incremental do índice  
+3. Dockerfile e configuração de deploy  

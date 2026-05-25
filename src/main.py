@@ -1,15 +1,18 @@
+from pathlib import Path
+from typing import List, Optional
+
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, status, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from typing import List
 from pydantic import BaseModel
 from datetime import datetime
 
+from .config import settings
 from .database import get_db, engine, Base
 from .models.chat import ChatSession, ChatMessage
 from .services.chat_service import ChatService
 from .services.ingestion import IngestionService
-from .services.embeddings_provider import EmbeddingLoadError
+from .services.embeddings_provider import EmbeddingLoadError, get_embeddings
 
 # Garante que as tabelas existem ao iniciar
 Base.metadata.create_all(bind=engine)
@@ -67,11 +70,86 @@ class IngestResponse(BaseModel):
     chunks_created: int = 0
     vector_db_path: str = ""
 
+class RagHealthResponse(BaseModel):
+    status: str
+    documents_path: str
+    documents_path_exists: bool
+    supported_documents_count: int
+    supported_documents: List[str]
+    vector_db_path: str
+    vector_index_exists: bool
+    vector_metadata_exists: bool
+    ready_for_retrieval: bool
+    embedding_model: str
+    embeddings_checked: bool = False
+    embeddings_ok: Optional[bool] = None
+    embedding_error: Optional[str] = None
+
 # --- Endpoints ---
 
 @app.get("/")
 def read_root():
     return {"message": "Bem-vindo à API do ClownorCloud!", "status": "online"}
+
+@app.get("/health/rag", response_model=RagHealthResponse)
+def rag_health(check_embeddings: bool = False):
+    """
+    Verifica se os arquivos necessários para o RAG existem.
+    Use `check_embeddings=true` para também carregar o modelo de embeddings.
+    """
+    documents_path = Path(settings.DOCUMENTS_PATH)
+    vector_db_path = Path(settings.VECTOR_DB_PATH)
+    index_path = vector_db_path / "index.faiss"
+    metadata_path = vector_db_path / "index.pkl"
+
+    supported_documents = []
+    if documents_path.exists():
+        supported_documents = sorted(
+            file.name
+            for file in documents_path.iterdir()
+            if file.is_file() and file.suffix.lower() in {".txt", ".pdf"}
+        )
+
+    embedding_model = (
+        settings.EMBEDDING_MODEL_PATH
+        if settings.EMBEDDING_MODEL_PATH
+        else settings.EMBEDDING_MODEL
+    )
+    vector_index_exists = index_path.exists()
+    vector_metadata_exists = metadata_path.exists()
+    ready_for_retrieval = vector_index_exists and vector_metadata_exists
+
+    embeddings_ok = None
+    embedding_error = None
+    if check_embeddings:
+        try:
+            get_embeddings()
+            embeddings_ok = True
+        except EmbeddingLoadError as e:
+            embeddings_ok = False
+            embedding_error = str(e)
+
+    status_value = "healthy"
+    if not ready_for_retrieval:
+        status_value = "not_ready"
+    if check_embeddings and embeddings_ok is False:
+        status_value = "degraded"
+
+    return RagHealthResponse(
+        status=status_value,
+        documents_path=str(documents_path),
+        documents_path_exists=documents_path.exists(),
+        supported_documents_count=len(supported_documents),
+        supported_documents=supported_documents,
+        vector_db_path=str(vector_db_path),
+        vector_index_exists=vector_index_exists,
+        vector_metadata_exists=vector_metadata_exists,
+        ready_for_retrieval=ready_for_retrieval,
+        embedding_model=embedding_model,
+        embeddings_checked=check_embeddings,
+        embeddings_ok=embeddings_ok,
+        embedding_error=embedding_error,
+    )
 
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest_documents(
