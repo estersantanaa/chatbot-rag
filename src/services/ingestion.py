@@ -107,6 +107,15 @@ class IngestionService:
             "vector_db_path": self.vector_db_path,
         }
 
+    def clear_index(self) -> None:
+        """Remove os arquivos do índice FAISS local."""
+        vector_path = Path(self.vector_db_path)
+        for filename in ("index.faiss", "index.pkl"):
+            index_file = vector_path / filename
+            if index_file.exists():
+                index_file.unlink()
+        RetrievalService.clear_cache()
+
     def run(self) -> Dict[str, Any]:
         """Reindexa todos os documentos em DOCUMENTS_PATH."""
         logger.info("Iniciando processo de ingestão de documentos...")

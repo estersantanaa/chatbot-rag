@@ -11,13 +11,13 @@ from .config import settings
 from .database import get_db, engine, Base
 from .models.chat import ChatSession, ChatMessage
 from .services.chat_service import ChatService
-from .services.ingestion import IngestionService
+from .services.ingestion import ALLOWED_EXTENSIONS, IngestionService
 from .services.embeddings_provider import EmbeddingLoadError, get_embeddings
 
 # Garante que as tabelas existem ao iniciar
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="ClownorCloud AI API")
+app = FastAPI(title="AI API")
 
 # Configuração de CORS para permitir que o frontend acesse a API
 app.add_middleware(
@@ -71,6 +71,19 @@ class IngestResponse(BaseModel):
     chunks_created: int = 0
     vector_db_path: str = ""
 
+class DocumentResponse(BaseModel):
+    filename: str
+    extension: str
+    size_bytes: int
+    modified_at: datetime
+
+class DeleteDocumentResponse(BaseModel):
+    success: bool
+    message: str
+    deleted_filename: str
+    remaining_documents_count: int
+    reindex: IngestResponse
+
 class RagHealthResponse(BaseModel):
     status: str
     documents_path: str
@@ -89,6 +102,49 @@ class RagHealthResponse(BaseModel):
     embedding_error: Optional[str] = None
 
 # --- Endpoints ---
+
+def _get_documents_dir() -> Path:
+    return Path(settings.DOCUMENTS_PATH)
+
+def _resolve_document_path(filename: str) -> Path:
+    safe_name = Path(filename).name
+    if safe_name != filename or not safe_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nome de arquivo inválido.",
+        )
+
+    suffix = Path(safe_name).suffix.lower()
+    if suffix not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Documento deve ser .txt ou .pdf.",
+        )
+
+    return _get_documents_dir() / safe_name
+
+def _list_document_files() -> List[Path]:
+    documents_path = _get_documents_dir()
+    if not documents_path.exists():
+        return []
+
+    return sorted(
+        (
+            file
+            for file in documents_path.iterdir()
+            if file.is_file() and file.suffix.lower() in ALLOWED_EXTENSIONS
+        ),
+        key=lambda file: file.name.lower(),
+    )
+
+def _to_document_response(file: Path) -> DocumentResponse:
+    stat = file.stat()
+    return DocumentResponse(
+        filename=file.name,
+        extension=file.suffix.lower(),
+        size_bytes=stat.st_size,
+        modified_at=datetime.fromtimestamp(stat.st_mtime),
+    )
 
 @app.get("/")
 def read_root():
@@ -209,6 +265,59 @@ def rebuild_index():
             detail=result["message"],
         )
     return IngestResponse(**result)
+
+@app.get("/documents", response_model=List[DocumentResponse])
+def list_documents():
+    """Lista documentos .pdf e .txt disponíveis para o RAG."""
+    return [_to_document_response(file) for file in _list_document_files()]
+
+@app.delete("/documents/{filename}", response_model=DeleteDocumentResponse)
+def delete_document(filename: str):
+    """Remove um documento de `data/` e reconstrói o índice FAISS."""
+    document_path = _resolve_document_path(filename)
+    if not document_path.exists() or not document_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Documento não encontrado.",
+        )
+
+    document_path.unlink()
+    service = IngestionService()
+    remaining_documents = _list_document_files()
+
+    if remaining_documents:
+        try:
+            result = service.run()
+        except EmbeddingLoadError as e:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(e),
+            ) from e
+    else:
+        service.clear_index()
+        result = {
+            "success": True,
+            "message": "Documento removido. Nenhum documento restante; índice FAISS limpo.",
+            "files_saved": [],
+            "files_skipped": [],
+            "documents_loaded": 0,
+            "chunks_created": 0,
+            "vector_db_path": settings.VECTOR_DB_PATH,
+        }
+
+    if not result["success"]:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=result["message"],
+        )
+
+    return DeleteDocumentResponse(
+        success=True,
+        message="Documento removido e índice atualizado.",
+        deleted_filename=document_path.name,
+        remaining_documents_count=len(remaining_documents),
+        reindex=IngestResponse(**result),
+    )
 
 @app.post("/sessions", response_model=SessionResponse)
 def create_session(db: Session = Depends(get_db)):

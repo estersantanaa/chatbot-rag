@@ -150,6 +150,8 @@ Documentação interativa: http://127.0.0.1:8000/docs
 |--------|------|-----------|
 | `GET` | `/` | Status da API |
 | `GET` | `/health/rag` | Health check do índice, documentos e embeddings |
+| `GET` | `/documents` | Lista documentos `.pdf`/`.txt` em `data/` |
+| `DELETE` | `/documents/{filename}` | Remove um documento e reindexa o FAISS |
 | `POST` | `/ingest` | Upload de `.pdf`/`.txt` + reindexação FAISS |
 | `POST` | `/ingest/rebuild` | Reindexa arquivos já em `data/` |
 | `POST` | `/sessions` | Nova sessão de chat |
@@ -180,6 +182,35 @@ curl "http://127.0.0.1:8000/health/rag?check_embeddings=true"
 ```
 
 Use `check_embeddings=true` com cuidado: na primeira execução ele pode baixar/carregar o modelo do Hugging Face e demorar alguns segundos.
+
+### Gerenciar documentos
+
+Listar documentos disponíveis em `data/`:
+
+```powershell
+curl http://127.0.0.1:8000/documents
+```
+
+Resposta:
+
+```json
+[
+  {
+    "filename": "clownorcloud_info.txt",
+    "extension": ".txt",
+    "size_bytes": 1234,
+    "modified_at": "2026-05-26T09:30:00"
+  }
+]
+```
+
+Remover um documento e reconstruir o índice:
+
+```powershell
+curl -X DELETE "http://127.0.0.1:8000/documents/clownorcloud_info.txt"
+```
+
+Se esse for o último documento, o endpoint também remove os arquivos do índice FAISS para evitar respostas com conteúdo antigo.
 
 ### Scores e threshold
 
@@ -254,6 +285,6 @@ EMBEDDING_LOCAL_ONLY=true
 
 ## Próximos passos sugeridos
 
-1. Remoção de documentos e update incremental do índice  
+1. Update incremental do índice  
 2. Rerank ou busca híbrida para melhorar a qualidade do retrieval  
 3. Dockerfile e configuração de deploy  
