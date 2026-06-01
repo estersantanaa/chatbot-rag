@@ -154,6 +154,7 @@ Documentação interativa: http://127.0.0.1:8000/docs
 | `DELETE` | `/documents/{filename}` | Remove um documento e reindexa o FAISS |
 | `POST` | `/ingest` | Upload de `.pdf`/`.txt` + reindexação FAISS |
 | `POST` | `/ingest/rebuild` | Reindexa arquivos já em `data/` |
+| `POST` | `/chat` | Conversa simplificada; cria sessão se `session_id` não vier |
 | `POST` | `/sessions` | Nova sessão de chat |
 | `GET` | `/sessions` | Lista sessões |
 | `POST` | `/sessions/{id}/messages` | Envia mensagem (RAG + resposta + `sources`) |
@@ -167,6 +168,37 @@ curl -X POST http://127.0.0.1:8000/sessions
 
 # 2. Enviar mensagem (substitua {id})
 curl -X POST http://127.0.0.1:8000/sessions/1/messages -H "Content-Type: application/json" -d "{\"content\": \"Quais são os planos da ClownorCloud?\"}"
+```
+
+### Chat simplificado
+
+Para o frontend, use `POST /chat`. Se `session_id` não for enviado, a API cria uma sessão automaticamente e devolve o ID para continuar a conversa.
+
+```powershell
+curl -X POST http://127.0.0.1:8000/chat -H "Content-Type: application/json" -d "{\"message\": \"Quais são os planos da ClownorCloud?\"}"
+```
+
+Resposta:
+
+```json
+{
+  "session_id": 1,
+  "created_session": true,
+  "response": "Aqui estão os planos...",
+  "sources": [
+    {
+      "source": "clownorcloud_info.txt",
+      "excerpt": "Plano Pequeno Picadeiro...",
+      "score": 0.72
+    }
+  ]
+}
+```
+
+Para continuar a mesma conversa, reenvie o `session_id`:
+
+```powershell
+curl -X POST http://127.0.0.1:8000/chat -H "Content-Type: application/json" -d "{\"session_id\": 1, \"message\": \"E qual deles tem mais suporte?\"}"
 ```
 
 ### Health check do RAG

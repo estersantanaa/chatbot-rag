@@ -4,7 +4,7 @@ from typing import List, Optional
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, status, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 
 from .config import settings
@@ -57,6 +57,14 @@ class SourceResponse(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     sources: List[SourceResponse]
+
+class SimpleChatRequest(BaseModel):
+    message: str = Field(..., min_length=1)
+    session_id: Optional[int] = None
+
+class SimpleChatResponse(ChatResponse):
+    session_id: int
+    created_session: bool
 
 class SkippedFileResponse(BaseModel):
     filename: str
@@ -145,6 +153,13 @@ def _to_document_response(file: Path) -> DocumentResponse:
         size_bytes=stat.st_size,
         modified_at=datetime.fromtimestamp(stat.st_mtime),
     )
+
+def _create_chat_session(db: Session) -> ChatSession:
+    new_session = ChatSession()
+    db.add(new_session)
+    db.commit()
+    db.refresh(new_session)
+    return new_session
 
 @app.get("/")
 def read_root():
@@ -319,14 +334,41 @@ def delete_document(filename: str):
         reindex=IngestResponse(**result),
     )
 
+@app.post("/chat", response_model=SimpleChatResponse)
+async def chat(request: SimpleChatRequest, db: Session = Depends(get_db)):
+    """
+    Endpoint simplificado de conversa.
+    Cria uma sessão automaticamente quando `session_id` não é informado.
+    """
+    created_session = False
+    session_id = request.session_id
+
+    if session_id is None:
+        session = _create_chat_session(db)
+        session_id = session.id
+        created_session = True
+    else:
+        session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+        if not session:
+            raise HTTPException(status_code=404, detail="Sessão não encontrada")
+
+    chat_service = ChatService(db)
+    try:
+        result = await chat_service.send_message(session_id, request.message)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    return SimpleChatResponse(
+        session_id=session_id,
+        created_session=created_session,
+        response=result["response"],
+        sources=result["sources"],
+    )
+
 @app.post("/sessions", response_model=SessionResponse)
 def create_session(db: Session = Depends(get_db)):
     """Cria uma nova sessão de chat."""
-    new_session = ChatSession()
-    db.add(new_session)
-    db.commit()
-    db.refresh(new_session)
-    return new_session
+    return _create_chat_session(db)
 
 @app.get("/sessions", response_model=List[SessionResponse])
 def list_sessions(db: Session = Depends(get_db)):
