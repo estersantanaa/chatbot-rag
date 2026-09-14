@@ -1,0 +1,29 @@
+Este repositório é o chatbot RAG ClownorCloud: um assistente que responde perguntas com base nos documentos da pasta data/, sem inventar conteúdo que não esteja nesses arquivos.
+
+O que o projeto faz
+O usuário envia uma pergunta pelo chat. O backend busca os trechos mais parecidos no índice vetorial e envia esses trechos para o LLM. A resposta vem acompanhada das fontes (nome do arquivo e trecho usado). Também é possível enviar novos PDF ou TXT pela interface; o sistema salva em data/ e reconstrói o índice.
+
+Pipeline de ingestão neste projeto
+1. Carrega arquivos .txt e .pdf de data/.
+2. Divide o texto em chunks (cerca de 700 caracteres, com overlap de 100).
+3. Gera embeddings locais com sentence-transformers/all-MiniLM-L6-v2, em CPU.
+4. Grava o índice FAISS em vector_db/.
+A ingestão inicial acontece se o índice ainda não existir. Depois disso, POST /ingest faz upload e reindexa; POST /ingest/rebuild reindexa o que já está em data/.
+
+Stack deste projeto
+- API: FastAPI e Uvicorn, porta 8000.
+- LLM: Groq, modelo openai/gpt-oss-120b, via LangChain ChatGroq.
+- Embeddings: HuggingFace sentence-transformers/all-MiniLM-L6-v2, local/CPU.
+- Banco vetorial: FAISS (vector_db/).
+- Histórico de conversas: SQLite (chatbot.db) com SQLAlchemy (sessões e mensagens).
+- Frontend: React 18, Vite, lucide-react e react-markdown.
+- Execução: Docker Compose. A API sobe na porta 8000 e a interface Nginx na porta 5173.
+
+Interface
+Há duas personas, com conversas e históricos isolados:
+- Cloud: tom formal, objetivo, sem emoji.
+- Clown: tom leve e bem-humorado, sem inventar fatos.
+A UI mostra se a API está no ar e se a base já foi indexada, sugere perguntas, renderiza Markdown nas respostas do assistente e lista as fontes usadas.
+
+Regras de resposta neste chatbot
+Perguntas sobre o próprio projeto, a stack, a ingestão ou o conteúdo dos arquivos devem usar só o contexto recuperado. Se o trecho não estiver na base, o bot deve dizer que não encontrou. Cumprimentos são permitidos; dado inventado sobre o sistema, não.

@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+
+# Config / Secrets
+.env
+
+# Database
+*.db
+*.sqlite3
+
+# Vector index (gerado pela ingestão)
+vector_db/
+
+# IDEs
+.vscode/
+.idea/
+
+# PDFs locais
+data/*.pdf
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env

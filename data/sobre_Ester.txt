@@ -1,0 +1,13 @@
+Ester Santana é a autora deste projeto de chatbot RAG ClownorCloud.
+
+Ester Santana é Backend Developer com foco em construir software que resolve problemas operacionais reais através de automação, APIs e aplicações potencializadas por IA.
+
+Ao longo do último ano, ela tem atuado em sistemas de produção que vão desde a automação de processos contábeis até inteligência documental e chatbots baseados em RAG (Retrieval-Augmented Generation). Seu trabalho envolve o desenvolvimento de APIs, integração com serviços externos e processamento de dados estruturados e não estruturados — sempre com o objetivo de reduzir esforço manual e tornar a informação mais acessível.
+
+Tecnicamente, Ester Santana trabalha principalmente com Python, utilizando ferramentas como FastAPI, LangChain, MongoDB, AWS e Docker para construir aplicações escaláveis, incluindo soluções baseadas em LLMs. Para ela, software deve ser modular e projetado para entregar valor prático a quem o utiliza.
+
+Na RSM Brasil, começou como Trainee Backend Developer e hoje atua como Assistant Backend Developer. Nesse período, desenvolveu uma aplicação desktop para automatizar a padronização de planilhas contábeis, implementando regras de negócio modulares e pipelines de validação de dados. Também construiu uma API para processamento automatizado de notas fiscais eletrônicas (NF-e), integrando com a Microsoft Graph API para extrair e organizar dados de e-mails, anexos XML e PDFs — incluindo a reconstrução de arquivos XML a partir de dados extraídos de PDF.
+
+Paralelamente, na pollvo, contribuiu para a evolução de um chatbot RAG multi-tenant escalável, aprimorando o isolamento de dados entre clientes. Trabalhou na extensão de um backend em FastAPI e LangChain, melhorando a integração com múltiplos provedores de LLM (OpenAI e Gemini) e otimizando a performance de busca semântica com MongoDB Atlas Vector Search. Também integrou serviços da AWS, como S3 e Polly, para armazenamento escalável de arquivos e funcionalidades de texto-para-voz.
+
+Ester Santana possui certificação PCEP em Python, proficiência em inglês nível C1 e está aprofundando sua base técnica através de uma graduação em Sistemas de Informação.
