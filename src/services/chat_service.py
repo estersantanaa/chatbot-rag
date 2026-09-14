@@ -6,19 +6,33 @@ from .ai_service import AIService
 from .retrieval_service import RetrievalService
 
 
+class SessionNotFoundError(Exception):
+    pass
+
+
+class PersonaMismatchError(Exception):
+    pass
+
+
 class ChatService:
     def __init__(self, db: Session):
         self.db = db
         self.ai = AIService()
         self.retrieval = RetrievalService()
 
-    async def send_message(self, session_id: int, content: str) -> dict:
+    async def send_message(self, session_id: int, content: str, persona: str = "cloud") -> dict:
         """
         Orquestra o envio de uma mensagem: salva, recupera contexto RAG, chama IA, salva resposta.
         """
         session = self.db.query(ChatSession).filter(ChatSession.id == session_id).first()
         if not session:
-            raise Exception(f"Sessão {session_id} não encontrada.")
+            raise SessionNotFoundError(f"Sessão {session_id} não encontrada.")
+
+        session_persona = session.persona or "cloud"
+        if persona != session_persona:
+            raise PersonaMismatchError(
+                f"A sessão {session_id} pertence à persona {session_persona}."
+            )
 
         user_msg = ChatMessage(
             session_id=session_id,
@@ -43,7 +57,10 @@ class ChatService:
         context_chunks = self.retrieval.retrieve(content)
 
         ai_response_text = await self.ai.get_response(
-            formatted_history, content, context_chunks=context_chunks
+            formatted_history,
+            content,
+            context_chunks=context_chunks,
+            persona=session_persona,
         )
 
         ai_msg = ChatMessage(

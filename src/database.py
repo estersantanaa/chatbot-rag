@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from .config import settings
@@ -22,3 +22,27 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def ensure_schema():
+    """Cria tabelas e adiciona colunas novas em bancos SQLite já existentes."""
+    from .models.chat import ChatMessage, ChatSession  # noqa: F401
+
+    Base.metadata.create_all(bind=engine)
+    inspector = inspect(engine)
+    if "chat_sessions" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("chat_sessions")}
+    with engine.begin() as conn:
+        if "persona" not in columns:
+            conn.execute(
+                text(
+                    "ALTER TABLE chat_sessions ADD COLUMN persona VARCHAR DEFAULT 'cloud'"
+                )
+            )
+        conn.execute(
+            text(
+                "UPDATE chat_sessions SET persona = 'cloud' "
+                "WHERE persona IS NULL OR persona = ''"
+            )
+        )

@@ -1,322 +1,127 @@
-# Chatbot RAG — ClownorCloud
+# ClownorCloud — chatbot RAG com duas personas
 
-Chatbot com **RAG** (Retrieval-Augmented Generation): documentos em `data/` viram índice vetorial local; cada pergunta recupera trechos relevantes e a IA responde com base nesse contexto.
+Um assistente que responde com base nos documentos da pasta `data/`. A mesma pergunta pode ser feita ao **Cloud** ou ao **Clown**: o conteúdo vem da base, o jeito de falar muda.
+
+<p align="center">
+  <img src="docs/cloud-home.png" alt="Cloud — tela inicial" width="48%" />
+  <img src="docs/cloud-chat.png" alt="Cloud — resposta sobre a stack" width="48%" />
+</p>
+<p align="center">
+  <img src="docs/clown-home.png" alt="Clown — tela inicial" width="48%" />
+  <img src="docs/clown-chat.png" alt="Clown — resposta sobre a Ester Santana" width="48%" />
+</p>
+
+## Cloud e Clown: a LLM atuando em papéis diferentes
+
+O modelo é o mesmo (Groq). O que muda é o **system prompt**. Cada persona tem conversas isoladas: o histórico do Cloud não vaza para o Clown, e o contrário também não.
+
+As duas compartilham as regras de RAG: responder em português, usar só o contexto recuperado, admitir quando o trecho não está na base, e formatar em Markdown.
+
+### Cloud — assistente educado e treinado
+
+O Cloud entra como um secretário corporativo. Tom formal, objetivo, sem gíria, sem emoji e sem piada. Cumprimenta com cortesia quando faz sentido.
+
+Serve para explicar stack, ingestão, o que está na base ou o currículo da autora com clareza de documentação.
+
+Prompt da persona:
+
+```text
+Persona Cloud: secretário corporativo. Seja educado, formal e objetivo,
+como quem organiza a agenda de um escritório. Linguagem polida, sem gíria,
+sem emoji, sem piada. Cumprimente com cortesia quando fizer sentido.
+```
+
+### Clown — o mesmo conhecimento, com humor
+
+O Clown usa o mesmo índice e as mesmas fontes. A instrução é ser leve e brincalhão, com emoji, sempre respeitoso. O humor **não pode inventar fatos** fora do contexto.
+
+Serve para a mesma consulta (quem é a Ester, qual a stack, o que foi ingerido), só que com um tom de circo.
+
+Prompt da persona:
+
+```text
+Persona Clown: responda de forma engraçada e leve, sempre respeitosa
+(nada de ofensa, deboche pesado ou constrangimento). Use emojis com naturalidade.
+O humor não pode inventar fatos fora do contexto.
+```
+
+Isso é o uso clássico de LLM como **ator de persona**: um prompt define o papel, o RAG trava os fatos.
+
+## Como o RAG funciona aqui
+
+1. Arquivos `.txt` e `.pdf` em `data/` são fatiados e viram embeddings locais (`all-MiniLM-L6-v2`, CPU).
+2. O índice fica no **FAISS** (`vector_db/`).
+3. Na pergunta, o backend busca trechos (similaridade + termos da query) e manda esse contexto ao Groq.
+4. A resposta na UI traz as **fontes**.
+
+A base atual tem `sobre_o_projeto.txt` (este chatbot) e `sobre_Ester.txt` (autora). Novos arquivos entram pelo botão da sidebar ou por `POST /ingest`.
 
 ## Stack
 
-| Componente | Tecnologia |
-|------------|------------|
-| API | FastAPI + Uvicorn |
-| LLM | Groq (`llama-3.3-70b-versatile`) |
-| Embeddings | HuggingFace (`sentence-transformers/all-MiniLM-L6-v2`, local/CPU) |
-| Banco vetorial | **FAISS** (arquivos em `vector_db/`) |
-| Histórico de chat | SQLite (`chatbot.db`) |
-
-## Arquitetura
+| Camada | Tecnologia |
+|--------|------------|
+| API | FastAPI + Uvicorn (`:8000`) |
+| LLM | Groq `openai/gpt-oss-120b` via LangChain |
+| Embeddings | HuggingFace `all-MiniLM-L6-v2` (local/CPU) |
+| Vetores | FAISS |
+| Histórico | SQLite + SQLAlchemy |
+| UI | React 18, Vite, react-markdown |
+| Run | Docker Compose (UI Nginx em `:5173`) |
 
 ```mermaid
 flowchart LR
-  subgraph ingest [Ingestão manual]
-    D[data/ TXT PDF]
-    I[IngestionService]
-    V[vector_db/ FAISS]
-    D --> I --> V
-  end
-
-  subgraph runtime [Runtime API]
-    Q[Pergunta do usuário]
-    R[RetrievalService]
-    A[AIService + Groq]
-    API[FastAPI]
-    Q --> R
-    V --> R
-    R --> A --> API
-  end
+  D[data/ TXT PDF] --> I[Ingestion]
+  I --> V[FAISS]
+  Q[Pergunta + persona] --> R[Retrieval]
+  V --> R
+  R --> A[Groq + prompt Cloud/Clown]
+  A --> UI[React]
 ```
 
-A ingestão pode ser feita pela **API** (`POST /ingest`) ou por script após colocar arquivos em `data/`.
+## Subir o projeto
 
-## Estrutura do projeto
-
-```
-chatbot-rag/
-├── data/                 # Documentos fonte (.txt, .pdf)
-├── vector_db/            # Índice FAISS (gerado pela ingestão; não versionar)
-├── src/
-│   ├── main.py           # Endpoints FastAPI
-│   ├── config.py         # Settings via .env
-│   ├── database.py       # SQLite + SQLAlchemy
-│   ├── models/           # ChatSession, ChatMessage
-│   └── services/
-│       ├── ingestion.py      # Pipeline: load → chunk → embed → FAISS
-│       ├── retrieval_service.py
-│       ├── ai_service.py
-│       └── chat_service.py   # Orquestra RAG + histórico + persistência
-├── test_ingest.py        # Ingestão + busca semântica de smoke test
-├── test_rag_setup.py     # Verifica paths de config
-└── requirements.txt
-```
-
-## Pré-requisitos
-
-- Python 3.10+
-- Chave da API [Groq](https://console.groq.com/)
-
-## Configuração
-
-1. Crie e ative o ambiente virtual:
-
-   ```powershell
-   python -m venv venv
-   .\venv\Scripts\activate
-   ```
-
-2. Instale as dependências:
-
-   ```powershell
-   pip install -r requirements.txt
-   ```
-
-3. Copie o exemplo de ambiente e preencha a chave:
-
-   ```powershell
-   copy .env.example .env
-   ```
-
-   Edite `.env` e defina `GROQ_API_KEY`.
-
-## Variáveis de ambiente
-
-| Variável | Padrão | Descrição |
-|----------|--------|-----------|
-| `GROQ_API_KEY` | — | Obrigatória. Chave da API Groq |
-| `DATABASE_URL` | `sqlite:///./chatbot.db` | URL do SQLite |
-| `VECTOR_DB_PATH` | `vector_db` | Pasta do índice FAISS |
-| `DOCUMENTS_PATH` | `data` | Pasta dos documentos para ingestão |
-| `RAG_TOP_K` | `4` | Quantidade de trechos recuperados por pergunta |
-| `RAG_SCORE_THRESHOLD` | — | Score máximo aceito no FAISS; menor score = trecho mais parecido |
-| `CHAT_HISTORY_LIMIT` | `10` | Mensagens anteriores enviadas ao LLM |
-| `DEBUG` | `True` | Flag de debug (settings) |
-
-## Ingestão (obrigatória antes do RAG)
-
-### Via API (recomendado)
-
-Com a API rodando, envie um ou mais arquivos:
+Chave em [console.groq.com](https://console.groq.com/). Copie `.env.example` para `.env` e preencha `GROQ_API_KEY`.
 
 ```powershell
-curl -X POST "http://127.0.0.1:8000/ingest" -F "files=@data/clownorcloud_info.txt"
+docker compose up --build
 ```
 
-Vários arquivos:
+- Interface: http://localhost:5173
+- API / Swagger: http://localhost:8000/docs
+
+Na primeira subida a API indexa `data/` se o FAISS ainda não existir (pode baixar o modelo de embeddings). Depois de editar um `.txt`, reconstrua o índice:
 
 ```powershell
-curl -X POST "http://127.0.0.1:8000/ingest" -F "files=@documento.pdf" -F "files=@faq.txt"
+curl.exe -X POST "http://127.0.0.1:8000/ingest/rebuild"
 ```
 
-Reindexar tudo que já está em `data/` (sem upload):
+Sem Docker: `pip install -r requirements.txt`, `uvicorn src.main:app --reload`, e no `frontend/` um `npm install && npm run dev`.
 
-```powershell
-curl -X POST "http://127.0.0.1:8000/ingest/rebuild"
-```
+## API essencial
 
-Resposta de sucesso (`201`): `files_saved`, `chunks_created`, etc. Formatos aceitos: **`.pdf`** e **`.txt`** apenas.
-
-### Via script
-
-```powershell
-python test_ingest.py
-```
-
-Ou:
-
-```powershell
-python -m src.services.ingestion
-```
-
-Isso cria `vector_db/index.faiss` e `vector_db/index.pkl`. Sem ingestão, o chat funciona, mas **sem contexto** da base de conhecimento.
-
-## Subir a API
-
-```powershell
-uvicorn src.main:app --reload
-```
-
-Documentação interativa: http://127.0.0.1:8000/docs
-
-### Endpoints principais
-
-| Método | Rota | Descrição |
+| Método | Rota | O que faz |
 |--------|------|-----------|
-| `GET` | `/` | Status da API |
-| `GET` | `/health/rag` | Health check do índice, documentos e embeddings |
-| `GET` | `/documents` | Lista documentos `.pdf`/`.txt` em `data/` |
-| `DELETE` | `/documents/{filename}` | Remove um documento e reindexa o FAISS |
-| `POST` | `/ingest` | Upload de `.pdf`/`.txt` + reindexação FAISS |
-| `POST` | `/ingest/rebuild` | Reindexa arquivos já em `data/` |
-| `POST` | `/chat` | Conversa simplificada; cria sessão se `session_id` não vier |
-| `POST` | `/sessions` | Nova sessão de chat |
-| `GET` | `/sessions` | Lista sessões |
-| `POST` | `/sessions/{id}/messages` | Envia mensagem (RAG + resposta + `sources`) |
+| `GET` | `/health/rag` | Índice, documentos e se a base está pronta |
+| `POST` | `/ingest` | Upload de `.txt`/`.pdf` e reindexação |
+| `POST` | `/ingest/rebuild` | Reindexa o que já está em `data/` |
+| `POST` | `/sessions?persona=cloud\|clown` | Nova conversa daquela persona |
+| `POST` | `/sessions/{id}/messages` | Pergunta com RAG (`content` + `persona`) |
 | `GET` | `/sessions/{id}/history` | Histórico da sessão |
 
-Exemplo de fluxo:
-
 ```powershell
-# 1. Criar sessão
-curl -X POST http://127.0.0.1:8000/sessions
-
-# 2. Enviar mensagem (substitua {id})
-curl -X POST http://127.0.0.1:8000/sessions/1/messages -H "Content-Type: application/json" -d "{\"content\": \"Quais são os planos da ClownorCloud?\"}"
+curl.exe -X POST "http://127.0.0.1:8000/sessions?persona=cloud"
+curl.exe -X POST "http://127.0.0.1:8000/sessions/1/messages" -H "Content-Type: application/json" -d "{\"content\": \"Qual a stack desse chatbot RAG?\", \"persona\": \"cloud\"}"
 ```
 
-### Chat simplificado
+`GROQ_API_KEY` é obrigatória. O restante tem padrão no `.env.example` (`GROQ_MODEL`, `RAG_TOP_K`, `DOCUMENTS_PATH`, etc.).
 
-Para o frontend, use `POST /chat`. Se `session_id` não for enviado, a API cria uma sessão automaticamente e devolve o ID para continuar a conversa.
+## Estrutura
 
-```powershell
-curl -X POST http://127.0.0.1:8000/chat -H "Content-Type: application/json" -d "{\"message\": \"Quais são os planos da ClownorCloud?\"}"
+```
+data/                 documentos fonte
+src/services/         ingestão, retrieval, prompts, orquestração do chat
+frontend/             UI Cloud / Clown
+vector_db/            índice FAISS (gerado, não versionar)
 ```
 
-Resposta:
-
-```json
-{
-  "session_id": 1,
-  "created_session": true,
-  "response": "Aqui estão os planos...",
-  "sources": [
-    {
-      "source": "clownorcloud_info.txt",
-      "excerpt": "Plano Pequeno Picadeiro...",
-      "score": 0.72
-    }
-  ]
-}
-```
-
-Para continuar a mesma conversa, reenvie o `session_id`:
-
-```powershell
-curl -X POST http://127.0.0.1:8000/chat -H "Content-Type: application/json" -d "{\"session_id\": 1, \"message\": \"E qual deles tem mais suporte?\"}"
-```
-
-### Health check do RAG
-
-```powershell
-curl http://127.0.0.1:8000/health/rag
-```
-
-Esse endpoint verifica se `data/` existe, quantos `.pdf`/`.txt` estão disponíveis e se `vector_db/index.faiss` + `vector_db/index.pkl` existem. Para testar também o carregamento do modelo de embeddings:
-
-```powershell
-curl "http://127.0.0.1:8000/health/rag?check_embeddings=true"
-```
-
-Use `check_embeddings=true` com cuidado: na primeira execução ele pode baixar/carregar o modelo do Hugging Face e demorar alguns segundos.
-
-### Gerenciar documentos
-
-Listar documentos disponíveis em `data/`:
-
-```powershell
-curl http://127.0.0.1:8000/documents
-```
-
-Resposta:
-
-```json
-[
-  {
-    "filename": "clownorcloud_info.txt",
-    "extension": ".txt",
-    "size_bytes": 1234,
-    "modified_at": "2026-05-26T09:30:00"
-  }
-]
-```
-
-Remover um documento e reconstruir o índice:
-
-```powershell
-curl -X DELETE "http://127.0.0.1:8000/documents/clownorcloud_info.txt"
-```
-
-Se esse for o último documento, o endpoint também remove os arquivos do índice FAISS para evitar respostas com conteúdo antigo.
-
-### Scores e threshold
-
-As respostas de chat retornam `score` em cada fonte recuperada. No FAISS usado aqui, **menor score significa maior similaridade**.
-
-Exemplo:
-
-```json
-{
-  "sources": [
-    {
-      "source": "clownorcloud_info.txt",
-      "excerpt": "O plano Grande Circo...",
-      "score": 0.23
-    }
-  ]
-}
-```
-
-Para filtrar trechos fracos, defina `RAG_SCORE_THRESHOLD` no `.env`:
-
-```env
-RAG_SCORE_THRESHOLD=0.8
-```
-
-Com esse exemplo, só entram no contexto chunks com `score <= 0.8`. Comece sem threshold, observe os scores nas respostas e depois calibre um valor seguro para a sua base.
-
-## Scripts de teste
-
-| Arquivo | O que valida |
-|---------|----------------|
-| `test_rag_setup.py` | Paths `data/` e `vector_db/` existem |
-| `test_ingest.py` | Pipeline completo de ingestão + buscas de exemplo |
-| `test_groq.py` | Conexão com a API Groq |
-| `test_db.py` | CRUD básico de sessão/mensagem no SQLite |
-| `test_ai_core.py` | `ChatService` ponta a ponta (memória + RAG) |
-
-```powershell
-python test_rag_setup.py
-python test_ingest.py
-python test_groq.py
-python test_db.py
-python test_ai_core.py
-```
-
-## Problemas comuns
-
-### `SSL: CERTIFICATE_VERIFY_FAILED` ao fazer `/ingest`
-
-O modelo de embeddings é baixado do Hugging Face na primeira ingestão. No Windows isso costuma falhar por certificado SSL.
-
-**Solução (recomendada):**
-
-```powershell
-pip install pip-system-certs certifi
-```
-
-Reinicie o uvicorn e tente `/ingest` de novo.
-
-**Alternativa (sem download na API):** baixe o modelo em outra máquina/rede e aponte no `.env`:
-
-```env
-EMBEDDING_MODEL_PATH=models/all-MiniLM-L6-v2
-EMBEDDING_LOCAL_ONLY=true
-```
-
-## Limitações atuais (MVP)
-
-- Reindexação **substitui** o índice inteiro (não há update incremental por arquivo).
-- Retrieval apenas por similaridade vetorial (sem rerank ou busca híbrida).
-- FAISS em disco: adequado para dev/local; não é um vector DB distribuído.
-
-## Próximos passos sugeridos
-
-1. Update incremental do índice  
-2. Rerank ou busca híbrida para melhorar a qualidade do retrieval  
-3. Dockerfile e configuração de deploy  
+Reindexação substitui o índice inteiro. O FAISS local serve para demo; não é um vector DB distribuído.

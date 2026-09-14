@@ -1,23 +1,40 @@
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Literal, Optional
+from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, status, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 
 from .config import settings
-from .database import get_db, engine, Base
+from .database import get_db, ensure_schema
 from .models.chat import ChatSession, ChatMessage
-from .services.chat_service import ChatService
+from .services.chat_service import ChatService, PersonaMismatchError, SessionNotFoundError
 from .services.ingestion import ALLOWED_EXTENSIONS, IngestionService
 from .services.embeddings_provider import EmbeddingLoadError, get_embeddings
 
-# Garante que as tabelas existem ao iniciar
-Base.metadata.create_all(bind=engine)
+logger = logging.getLogger(__name__)
 
-app = FastAPI(title="AI API")
+ensure_schema()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    index_path = Path(settings.VECTOR_DB_PATH) / "index.faiss"
+    if not index_path.exists():
+        logger.warning("Índice FAISS ausente. Indexando documentos em data/...")
+        try:
+            result = IngestionService().run()
+            logger.warning("Ingestão inicial: %s", result.get("message"))
+        except Exception as exc:
+            logger.error("Falha ao indexar na inicialização: %s", exc)
+    yield
+
+
+app = FastAPI(title="AI API", lifespan=lifespan)
 
 # Configuração de CORS para permitir que o frontend acesse a API
 app.add_middleware(
@@ -32,6 +49,7 @@ app.add_middleware(
 
 class MessageRequest(BaseModel):
     content: str
+    persona: Literal["cloud", "clown"] = "cloud"
 
 class MessageResponse(BaseModel):
     id: int
@@ -45,9 +63,15 @@ class MessageResponse(BaseModel):
 class SessionResponse(BaseModel):
     id: int
     created_at: datetime
+    persona: Literal["cloud", "clown"] = "cloud"
 
     class Config:
         from_attributes = True
+
+    @field_validator("persona", mode="before")
+    @classmethod
+    def normalize_persona(cls, value):
+        return value or "cloud"
 
 class SourceResponse(BaseModel):
     source: str
@@ -154,8 +178,8 @@ def _to_document_response(file: Path) -> DocumentResponse:
         modified_at=datetime.fromtimestamp(stat.st_mtime),
     )
 
-def _create_chat_session(db: Session) -> ChatSession:
-    new_session = ChatSession()
+def _create_chat_session(db: Session, persona: Literal["cloud", "clown"] = "cloud") -> ChatSession:
+    new_session = ChatSession(persona=persona)
     db.add(new_session)
     db.commit()
     db.refresh(new_session)
@@ -355,8 +379,10 @@ async def chat(request: SimpleChatRequest, db: Session = Depends(get_db)):
     chat_service = ChatService(db)
     try:
         result = await chat_service.send_message(session_id, request.message)
+    except SessionNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
     return SimpleChatResponse(
         session_id=session_id,
@@ -366,23 +392,38 @@ async def chat(request: SimpleChatRequest, db: Session = Depends(get_db)):
     )
 
 @app.post("/sessions", response_model=SessionResponse)
-def create_session(db: Session = Depends(get_db)):
-    """Cria uma nova sessão de chat."""
-    return _create_chat_session(db)
+def create_session(
+    persona: Literal["cloud", "clown"] = "cloud",
+    db: Session = Depends(get_db),
+):
+    """Cria uma nova sessão de chat vinculada a Cloud ou Clown."""
+    return _create_chat_session(db, persona=persona)
 
 @app.get("/sessions", response_model=List[SessionResponse])
-def list_sessions(db: Session = Depends(get_db)):
-    """Lista todas as sessões existentes."""
-    return db.query(ChatSession).order_by(ChatSession.created_at.desc()).all()
+def list_sessions(
+    persona: Optional[Literal["cloud", "clown"]] = None,
+    db: Session = Depends(get_db),
+):
+    """Lista sessões, opcionalmente só da persona Cloud ou Clown."""
+    query = db.query(ChatSession)
+    if persona:
+        query = query.filter(ChatSession.persona == persona)
+    return query.order_by(ChatSession.created_at.desc()).all()
 
 @app.post("/sessions/{session_id}/messages", response_model=ChatResponse)
 async def send_message(session_id: int, request: MessageRequest, db: Session = Depends(get_db)):
     """Envia uma mensagem para a IA em uma sessão específica (com RAG)."""
     chat_service = ChatService(db)
     try:
-        return await chat_service.send_message(session_id, request.content)
+        return await chat_service.send_message(
+            session_id, request.content, persona=request.persona
+        )
+    except SessionNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except PersonaMismatchError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
 @app.get("/sessions/{session_id}/history", response_model=List[MessageResponse])
 def get_history(session_id: int, db: Session = Depends(get_db)):

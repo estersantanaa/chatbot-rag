@@ -9,7 +9,8 @@ class ChatSession(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+    persona = Column(String, default="cloud", nullable=False, index=True)
+
     # Isso diz ao SQLAlchemy: "Uma sessão tem várias mensagens"
     messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
 

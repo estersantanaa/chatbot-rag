@@ -9,6 +9,7 @@ configure_ssl()
 
 class Settings(BaseSettings):
     GROQ_API_KEY: str
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
     DATABASE_URL: str = "sqlite:///./chatbot.db"
     VECTOR_DB_PATH: str = "vector_db"
     DOCUMENTS_PATH: str = "data"
